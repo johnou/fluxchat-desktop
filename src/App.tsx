@@ -1,31 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendMessage } from "./lib/logCoalescer";
+import type { ChatMessage, MessageKind } from "./lib/logCoalescer";
 import type { FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
-
-type MessageKind =
-  | "privmsg"
-  | "action"
-  | "notice"
-  | "join"
-  | "part"
-  | "quit"
-  | "nick"
-  | "topic"
-  | "info"
-  | "error";
-
-interface ChatMessage {
-  connection_id: string;
-  target: string;
-  sender?: string | null;
-  message: string;
-  kind: MessageKind;
-  timestamp: number;
-  metadata?: unknown;
-}
 
 type IrcEvent =
   | {
@@ -1425,7 +1404,7 @@ function isMention(msg: ChatMessage, nickname: string): boolean {
   if (!nickname) {
     return false;
   }
-  return msg.message.toLowerCase().includes(nickname.toLowerCase());
+  return (msg.message ?? "").toLowerCase().includes(nickname.toLowerCase());
 }
 
 function equalsIgnoreCase(a: string, b: string): boolean {
@@ -1458,7 +1437,11 @@ function mergeHistory(
   };
   history.forEach(add);
   existing.forEach(add);
-  return Array.from(lookup.values()).sort((a, b) => a.timestamp - b.timestamp);
+  const sorted = Array.from(lookup.values()).sort((a, b) => a.timestamp - b.timestamp);
+  return sorted.reduce<ChatMessage[]>(
+    (acc, msg) => appendMessage(acc, msg, MESSAGE_LIMIT),
+    [],
+  );
 }
 
 function messageKey(msg: ChatMessage): string {
@@ -1467,7 +1450,7 @@ function messageKey(msg: ChatMessage): string {
     msg.target,
     msg.kind,
     msg.sender ?? "",
-    msg.message,
+    msg.message ?? "",
   ].join("|");
 }
 
