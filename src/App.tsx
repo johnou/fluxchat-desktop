@@ -118,6 +118,11 @@ interface ChannelUserPayload {
 
 type ChannelUser = ChannelUserPayload;
 
+interface ConnectionRemap {
+  from: string | null;
+  to: string | null;
+}
+
 const QUIT_REASONS = [
   "ran out of caffeine",
   "recompiled the kernel",
@@ -305,16 +310,26 @@ function App() {
 
   const handleEvent = useCallback((payload: IrcEvent) => {
     const activeSnapshot = activeRef.current;
-    setConnections((prev) => applyEvent(prev, payload, activeSnapshot));
+    const remap: ConnectionRemap = { from: null, to: null };
+    setConnections((prev) => applyEvent(prev, payload, activeSnapshot, remap));
     switch (payload.type) {
       case "connected":
         setStatus(`Connected to ${payload.server}`);
-        setActive((current) =>
-          current ?? {
-            connectionId: payload.connection_id,
-            buffer: "*server",
-          },
-        );
+        setActive((current) => {
+          if (!current) {
+            return {
+              connectionId: payload.connection_id,
+              buffer: "*server",
+            };
+          }
+          if (remap.from && remap.to && current.connectionId === remap.from) {
+            return {
+              connectionId: remap.to,
+              buffer: current.buffer,
+            };
+          }
+          return current;
+        });
         break;
       case "error":
         setStatus(payload.message);
@@ -1149,6 +1164,7 @@ function applyEvent(
   prev: ConnectionsState,
   payload: IrcEvent,
   active: ActiveSnapshot,
+  remap?: ConnectionRemap,
 ): ConnectionsState {
   const next: ConnectionsState = { ...prev };
 
@@ -1164,6 +1180,10 @@ function applyEvent(
       if (existingEntry) {
         existing = existingEntry[1];
         delete next[existingEntry[0]];
+        if (remap) {
+          remap.from = existingEntry[0];
+          remap.to = id;
+        }
       }
       const connection = cloneConnection(
         existing,
@@ -1171,6 +1191,12 @@ function applyEvent(
         payload.server,
         payload.nickname,
       );
+      if (existingEntry) {
+        for (const buffer of Object.values(connection.buffers)) {
+          buffer.loaded = false;
+          buffer.loading = false;
+        }
+      }
       const serverBuffer = cloneBuffer(connection.buffers["*server"], "*server");
       if (payload.message) {
         serverBuffer.messages = appendMessage(
