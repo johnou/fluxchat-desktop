@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { appendMessage } from "./lib/logCoalescer";
 import type { FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -1202,6 +1203,7 @@ function applyEvent(
         serverBuffer.messages = appendMessage(
           serverBuffer.messages,
           makeSystemMessage(id, "*server", payload.message, "info"),
+          MESSAGE_LIMIT
         );
         serverBuffer.unread = !isBufferActive(active, id, "*server");
       }
@@ -1219,6 +1221,7 @@ function applyEvent(
       serverBuffer.messages = appendMessage(
         serverBuffer.messages,
         makeSystemMessage(id, "*server", reason, "info"),
+        MESSAGE_LIMIT
       );
       serverBuffer.unread = !isBufferActive(active, id, "*server");
       connection.buffers["*server"] = serverBuffer;
@@ -1234,6 +1237,7 @@ function applyEvent(
       serverBuffer.messages = appendMessage(
         serverBuffer.messages,
         makeSystemMessage(id, "*server", payload.message, "error"),
+        MESSAGE_LIMIT
       );
       serverBuffer.unread = !isBufferActive(active, id, "*server");
       connection.buffers["*server"] = serverBuffer;
@@ -1287,7 +1291,7 @@ function applyEvent(
         bufferName = "*server";
       }
       const buffer = cloneBuffer(connection.buffers[bufferName], bufferName);
-      buffer.messages = appendMessage(buffer.messages, normalized);
+      buffer.messages = appendMessage(buffer.messages, normalized, MESSAGE_LIMIT);
       const mentioned = isMention(normalized, connection.nickname);
       buffer.unread = !isBufferActive(active, id, bufferName) || mentioned;
 
@@ -1442,70 +1446,6 @@ function makeSystemMessage(
     kind,
     timestamp: Date.now(),
   };
-}
-
-function findLastIndex<T>(items: T[], predicate: (value: T, index: number) => boolean): number {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    if (predicate(items[i], i)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-function clipMessages(messages: ChatMessage[], limit = MESSAGE_LIMIT): ChatMessage[] {
-  if (messages.length <= limit) {
-    return messages;
-  }
-  return messages.slice(messages.length - limit);
-}
-
-function appendMessage(
-  messages: ChatMessage[],
-  msg: ChatMessage,
-  limit = MESSAGE_LIMIT,
-): ChatMessage[] {
-  const index = findLastIndex(messages, (existing) => canMergeMessages(existing, msg));
-  if (index !== -1) {
-    const existing = messages[index];
-    const existingMeta = (existing.metadata as Record<string, unknown> | undefined) ?? {};
-    const repeatCount = Number(existingMeta.repeatCount ?? 1) + 1;
-    const merged: ChatMessage = {
-      ...existing,
-      timestamp: msg.timestamp,
-      metadata: {
-        ...existingMeta,
-        repeatCount,
-      },
-    };
-    const withoutExisting = [...messages.slice(0, index), ...messages.slice(index + 1)];
-    return clipMessages([...withoutExisting, merged], limit);
-  }
-  const meta =
-    msg.metadata && typeof msg.metadata === "object"
-      ? { ...(msg.metadata as Record<string, unknown>) }
-      : {};
-  const next: ChatMessage = {
-    ...msg,
-    metadata: meta,
-  };
-  return clipMessages([...messages, next], limit);
-}
-
-function canMergeMessages(a: ChatMessage, b: ChatMessage): boolean {
-  if (a.kind !== b.kind) {
-    return false;
-  }
-  if (a.kind === "privmsg" || a.kind === "action") {
-    return false;
-  }
-  if ((a.sender ?? "") !== (b.sender ?? "")) {
-    return false;
-  }
-  if (a.target !== b.target) {
-    return false;
-  }
-  return a.message === b.message;
 }
 
 function mergeHistory(
