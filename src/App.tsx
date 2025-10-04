@@ -1499,7 +1499,7 @@ function canMergeMessages(a: ChatMessage, b: ChatMessage): boolean {
   if (a.kind === "privmsg" || a.kind === "action") {
     return false;
   }
-  if (a.sender ?? "" !== b.sender ?? "") {
+  if ((a.sender ?? "") !== (b.sender ?? "")) {
     return false;
   }
   if (a.target !== b.target) {
